@@ -4,11 +4,12 @@ use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::{Response, StatusCode};
 use select::{document::Document, predicate::Name};
 use std::{
-    fs::File,
-    io::{BufWriter, Write},
+    env::current_dir,
+    fs::{metadata, File, create_dir},
+    io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     thread::sleep,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -69,6 +70,7 @@ pub enum OneKpKey {
 
 impl OneKp {
     pub fn new(table_index: &str) -> Self {
+        // Cannot infer prefix name only in tsv file...
         let links = Document::from(table_index)
             .find(Name("a"))
             .filter_map(|n| n.attr("href"))
@@ -233,29 +235,84 @@ enum Commands {
         rootdir: PathBuf,
         #[arg(long)]
         filter_key: OneKpKey,
-        #[arg(long)]
+        #[arg(long, value_delimiter = ',')]
         filter_values: Vec<String>,
         #[arg(long, short)]
         sequence_type: SequenceType,
     },
-    Show {},
+    Show {
+        #[arg(long)]
+        filter_key: Option<OneKpKey>,
+        #[arg(long, value_delimiter = ',')]
+        filter_values: Option<Vec<String>>,
+    },
 }
+
+pub fn is_cache_update_required(path: &Path) -> Result<bool> {
+    let meta = metadata(path)?;
+    Ok(SystemTime::now().duration_since(meta.modified()?)? >= Duration::from_secs(3600))
+}
+
+async fn use_cache(url: &str, client: &mut Client) -> Result<String> {
+    let cache_path = current_dir()?.join(".onekp_cache");
+    if let Err(err) = create_dir(&cache_path) {
+        if let Some(raw_os_error) = err.raw_os_error() {
+            if raw_os_error != 17 {
+                return Err(anyhow!("{}", err))
+            } 
+        }
+    };
+
+    let mut filename = url.split('/').last().expect("Should exist filename");
+    
+    if filename.is_empty() {
+        filename = "index.html"
+    }
+
+    let path = cache_path.join(filename);
+
+    if let Ok(cache_update_required) = is_cache_update_required(&path) {
+        if !cache_update_required {
+            let f = File::open(path)?;
+            let mut br = BufReader::new(f);
+            let mut buf = String::new();
+            br.read_to_string(&mut buf)?;
+            return Ok(buf);
+        }
+    } else {
+        eprintln!("{:?}", is_cache_update_required(&path));
+    }
+
+    let text = client.get(url).await?.text().await?;
+    let f = File::create(path)?;
+    let mut br = BufWriter::new(f);
+    br.write_fmt(format_args!("{}", text))?;
+
+    Ok(text)
+}
+
+const INTERVAL: u64 = 3;
+const MAX_RETRY: usize = 5;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let mut client = Client::new(3, 5);
+    let mut client = Client::new(INTERVAL, MAX_RETRY);
 
-    let f = client.get("https://ftp.cngb.org/pub/gigadb/pub/10.5524/100001_101000/100627/Sample-List-with-Taxonomy.tsv.csv").await?.text().await?;
-    let table_index = client
-        .get("https://ftp.cngb.org/pub/gigadb/pub/10.5524/100001_101000/100627/assemblies/")
-        .await?
-        .text()
-        .await?;
+    let tsv = use_cache("https://ftp.cngb.org/pub/gigadb/pub/10.5524/100001_101000/100627/Sample-List-with-Taxonomy.tsv.csv", &mut client).await?;
+    let table_index = use_cache(
+        "https://ftp.cngb.org/pub/gigadb/pub/10.5524/100001_101000/100627/assemblies/",
+        &mut client,
+    )
+    .await?;
 
     let mut onekp = OneKp::new(&table_index);
-    for (i, line) in f.split('\n').map(|l| l.trim()).enumerate() {
+    for (i, line) in tsv.split('\n').map(|l| l.trim()).enumerate() {
         if i == 0 {
+            continue;
+        }
+
+        if line.is_empty() {
             continue;
         }
 
@@ -285,7 +342,31 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Show {} => {}
+        Commands::Show {
+            filter_key,
+            filter_values,
+        } => {
+            let mut lines = vec!["1kP_ID\tClade\tOrder\tFamily\tSpecies\tTissue Type".to_owned()];
+            if let Some(filter_key) = filter_key {
+                if let Some(filter_values) = filter_values {
+                    for rec in onekp.filter(filter_key, &filter_values).iter() {
+                        lines.push(format!(
+                            "{}\t{}\t{}\t{}\t{}\t{}",
+                            rec.id, rec.clade, rec.order, rec.family, rec.species, rec.tissue_type
+                        ));
+                    }
+                }
+            } else {
+                for rec in onekp.records.iter() {
+                    lines.push(format!(
+                        "{}\t{}\t{}\t{}\t{}\t{}",
+                        rec.id, rec.clade, rec.order, rec.family, rec.species, rec.tissue_type
+                    ));
+                }
+            }
+
+            println!("{}", lines.join("\n"));
+        }
     }
     Ok(())
 }

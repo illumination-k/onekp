@@ -240,7 +240,7 @@ enum Commands {
         #[arg(long, short)]
         sequence_type: SequenceType,
     },
-    Show {
+    MetaData {
         #[arg(long)]
         filter_key: Option<OneKpKey>,
         #[arg(long, value_delimiter = ',')]
@@ -342,7 +342,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Show {
+        Commands::MetaData {
             filter_key,
             filter_values,
         } => {

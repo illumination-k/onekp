@@ -1,14 +1,16 @@
-# Onekp Downloader
+# Onekp Utility
 
-Filtering and Fetching Onekp data from [Gigadb]()
+Filtering and Fetching Onekp data from [Gigadb](http://gigadb.org/dataset/100910)
 
 ## Show Metadata
 
 Show Liverworts and Mosses metadata
 
-```
+```bash
 onekp metadata --filter-key clade --filter-values Liverworts,Mosses
-# --- #
+```
+
+```
 WOGB    Mosses  Andreaeales     Andreaeaceae    Andreaea rupestris      gametophyte, tip of shoots, possibly some developi
 ORKS    Mosses  Bartramiales    Bartramiaceae   Philonotis fontana      gametophyte
 ...
@@ -16,11 +18,19 @@ HERT    Liverworts      Sphaerocarpales Sphaerocarpaceae        Sphaerocarpos te
 FITN    Liverworts      Treubiales      Treubiaceae     Treubia lacunosa        whole plant
 ```
 
-## Fetch fasta file
+## Fetch fasta files
+
+### Retrive by IDs
+
+```bash
+onekp fetch --filter-key id --filter-values URDJ,WTKZ -s both -r .
+```
+
+### Batch download
 
 Download protein and cds sequences of Liverworts and Mosses
 
-```
+```bash
 onekp fetch --filter-key clade --filter-values Liverworts,Mosses --sequence-type both --root-dir .
 ```
 

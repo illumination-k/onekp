@@ -13,6 +13,8 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use colored::*;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum SequenceType {
     Nucleotide,
@@ -336,16 +338,24 @@ async fn main() -> Result<()> {
             filter_values,
             sequence_type,
         } => {
+            let mut success_ids = vec![];
+            let mut err_ids = vec![];
+            eprintln!("--- Fetching start ---");
             for rec in onekp.filter(filter_key, filter_values.as_ref()).iter() {
                 match fetch_and_save(rec, &rootdir, sequence_type, &mut client).await {
                     Ok(()) => {
-                        eprintln!("Fetching sucess: {}", rec.species)
+                        eprintln!("{}: {}", "Success".green(), rec.species);
+                        success_ids.push(rec.id.to_owned());
                     }
                     Err(err) => {
-                        eprintln!("Fetchng {} failed because {}", rec.species, err)
+                        eprintln!("{}: {}\n{}", "Failed".red(), rec.species, err);
+                        err_ids.push(rec.id.to_owned());
                     }
                 }
             }
+            eprintln!("--- Fetching end ---");
+            eprintln!("{}: {}", "Success IDs".green(), success_ids.join(","));
+            eprintln!("{}: {}", "Failed IDs".red(), err_ids.join(","));
         }
         Commands::MetaData {
             filter_key,

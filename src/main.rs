@@ -4,8 +4,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::{Response, StatusCode};
 use select::{document::Document, predicate::Name};
 use std::{
+    collections::BTreeSet,
     env::current_dir,
-    fs::{metadata, File, create_dir},
+    fs::{create_dir, metadata, File},
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     thread::sleep,
@@ -246,6 +247,10 @@ enum Commands {
         #[arg(long, value_delimiter = ',')]
         filter_values: Option<Vec<String>>,
     },
+    Show {
+        #[arg(long, short)]
+        key: OneKpKey,
+    },
 }
 
 pub fn is_cache_update_required(path: &Path) -> Result<bool> {
@@ -258,13 +263,13 @@ async fn use_cache(url: &str, client: &mut Client) -> Result<String> {
     if let Err(err) = create_dir(&cache_path) {
         if let Some(raw_os_error) = err.raw_os_error() {
             if raw_os_error != 17 {
-                return Err(anyhow!("{}", err))
-            } 
+                return Err(anyhow!("{}", err));
+            }
         }
     };
 
     let mut filename = url.split('/').last().expect("Should exist filename");
-    
+
     if filename.is_empty() {
         filename = "index.html"
     }
@@ -366,6 +371,22 @@ async fn main() -> Result<()> {
             }
 
             println!("{}", lines.join("\n"));
+        }
+        Commands::Show { key } => {
+            let keyset: BTreeSet<String> = onekp
+                .records
+                .into_iter()
+                .map(|r| match key {
+                    OneKpKey::Id => r.id,
+                    OneKpKey::Clade => r.clade,
+                    OneKpKey::Family => r.family,
+                    OneKpKey::Order => r.order,
+                    OneKpKey::Species => r.species,
+                    OneKpKey::TissueType => r.tissue_type,
+                })
+                .collect();
+
+            println!("{}", keyset.into_iter().collect::<Vec<String>>().join("\n"));
         }
     }
     Ok(())
